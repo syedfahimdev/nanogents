@@ -1,0 +1,60 @@
+services:
+  nanogents:
+    container_name: nanogents
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    command: ["gateway"]
+    restart: unless-stopped
+    ports:
+      - "18790:18790"
+    volumes:
+      # Persist nanobot config and workspace
+      - nanobot-config:/root/.nanobot
+      # Mount entire host filesystem for full VPS access
+      - /:/host
+      # Direct access to common host paths
+      - /var/log:/var/log
+      - /etc:/host-etc:ro
+      # Docker socket for container management
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - TZ=${TZ:-UTC}
+      - HOST_ROOT=/host
+    # Run as privileged for full VPS access
+    privileged: true
+    # Use host network for unrestricted network access
+    network_mode: host
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  nanogents-cli:
+    container_name: nanogents-cli
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+    profiles:
+      - cli
+    command: ["agent"]
+    stdin_open: true
+    tty: true
+    volumes:
+      - nanobot-config:/root/.nanobot
+      - /:/host
+    privileged: true
+    network_mode: host
+
+volumes:
+  nanobot-config:
+    driver: local

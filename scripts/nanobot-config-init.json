@@ -1,0 +1,26 @@
+{
+  "providers": {
+    "openrouter": {
+      "apiKey": "REPLACE_ME"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "anthropic/claude-opus-4-5",
+      "provider": "openrouter"
+    }
+  },
+  "tools": {
+    "restrictToWorkspace": false,
+    "exec": {
+      "pathAppend": "/usr/sbin:/sbin:/host/usr/bin:/host/usr/local/bin"
+    }
+  },
+  "channels": {
+    "telegram": {
+      "enabled": false,
+      "token": "REPLACE_ME",
+      "allowFrom": []
+    }
+  }
+}

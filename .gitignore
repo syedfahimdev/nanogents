@@ -20,3 +20,8 @@ poetry.lock
 .pytest_cache/
 botpy.log
 tests/
+
+# Production / deployment
+.env
+*.log
+node_modules/

@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git clone https://github.com/syedfahimdev/nanogents.git . 2>&1)",
+      "Bash(git init && git remote add origin https://github.com/syedfahimdev/nanogents.git && git pull origin main 2>&1)",
+      "Bash(git branch --set-upstream-to=origin/main main 2>&1 && git remote add upstream https://github.com/HKUDS/nanobot.git 2>&1 && git fetch upstream 2>&1)",
+      "Bash(git -C /mnt/d/Projects/nanogents remote -v)",
+      "Bash(chmod +x /mnt/d/Projects/nanogents/scripts/*.sh)",
+      "Bash(chmod +x /mnt/d/Projects/nanogents/setup.sh /mnt/d/Projects/nanogents/scripts/wizard.py)",
+      "Bash(echo -e \"1\\\\n\\\\ntest-key-12345\\\\n1\\\\nnone\\\\nn\\\\n1\\\\ny\" | python3 scripts/wizard.py 2>&1 | head -80)",
+      "Bash(python3 -c \"\nimport ast, sys\nwith open\\('scripts/wizard.py'\\) as f:\n    try:\n        ast.parse\\(f.read\\(\\)\\)\n        print\\('wizard.py: syntax OK'\\)\n    except SyntaxError as e:\n        print\\(f'wizard.py: SYNTAX ERROR: {e}'\\)\n        sys.exit\\(1\\)\n\")",
+      "Bash(bash -n /mnt/d/Projects/nanogents/setup.sh && echo \"setup.sh: syntax OK\")",
+      "Bash(echo -e \"1\\\\nsk-or-v1-test123456\\\\n2\\\\n1,2\\\\nbot-token-12345\\\\nmyuserid\\\\ndiscord-token-abc\\\\nmydiscordid\\\\nn\\\\n1\\\\ny\" | timeout 10 python3 scripts/wizard.py 2>&1)",
+      "Bash(python3 -m json.tool)",
+      "Bash(git checkout -- nanobot_logo.png nanobot_arch.png 2>/dev/null; git status --short)"
+    ]
+  }
+}
