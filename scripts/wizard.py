@@ -868,6 +868,10 @@ class SetupWizard:
             ok("WhatsApp already linked!")
             if not ask_yes_no("Re-link WhatsApp? (scan QR again)", default=False):
                 return
+            # Clear stale session so bridge generates a fresh QR code
+            info("Clearing old WhatsApp session...")
+            shutil.rmtree(auth_dir, ignore_errors=True)
+            ok("Old session cleared")
 
         section(6, "WhatsApp Login", "Scan QR code to link your WhatsApp")
 

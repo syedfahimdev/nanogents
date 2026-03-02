@@ -164,6 +164,14 @@ whatsapp_login() {
         rm -f "$BRIDGE_PID_FILE"
     fi
 
+    # Clear stale session so bridge generates a fresh QR code
+    local AUTH_DIR="$HOME/.nanobot/whatsapp-auth"
+    if [ -d "$AUTH_DIR" ]; then
+        info "Clearing old WhatsApp session..."
+        rm -rf "$AUTH_DIR"
+        ok "Old session cleared — fresh QR will appear"
+    fi
+
     # Run bridge in foreground so user can see QR code
     cd "$BRIDGE_DIR"
     node dist/index.js
