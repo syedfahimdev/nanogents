@@ -158,10 +158,19 @@ whatsapp_login() {
     warn "Then run 'bash scripts/start.sh' to start normally."
     echo ""
 
-    # Stop existing bridge if running
+    # Stop existing bridge (PID file or any process on port 3001)
     if is_running "$BRIDGE_PID_FILE"; then
         kill "$(cat "$BRIDGE_PID_FILE")" 2>/dev/null || true
         rm -f "$BRIDGE_PID_FILE"
+        sleep 1
+    fi
+    # Kill anything still holding port 3001
+    local stale_pid
+    stale_pid=$(lsof -ti:3001 2>/dev/null || true)
+    if [ -n "$stale_pid" ]; then
+        info "Killing old process on port 3001 (PID $stale_pid)..."
+        kill "$stale_pid" 2>/dev/null || true
+        sleep 1
     fi
 
     # Clear stale session so bridge generates a fresh QR code
