@@ -894,23 +894,14 @@ class SetupWizard:
             info("Skipped. You can link later with: nanobot channels login")
             return
 
-        # Kill anything still holding port 3001
-        try:
-            import socket
-            s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            result = s.connect_ex(("127.0.0.1", 3001))
-            s.close()
-            if result == 0:
-                info("Port 3001 is in use, stopping old bridge process...")
-                subprocess.run(
-                    ["fuser", "-k", "3001/tcp"],
-                    capture_output=True,
-                )
-                import time
-                time.sleep(1)
-                ok("Old bridge stopped")
-        except Exception:
-            pass
+        # Force kill anything holding port 3001 and wait for release
+        info("Checking port 3001...")
+        subprocess.run(["fuser", "-k", "3001/tcp"], capture_output=True)
+        import time
+        time.sleep(2)
+        subprocess.run(["fuser", "-k", "-9", "3001/tcp"], capture_output=True)
+        time.sleep(1)
+        ok("Port 3001 clear")
 
         print()
         print(f"  {DIM}────── WhatsApp Bridge Output ──────{NC}")
