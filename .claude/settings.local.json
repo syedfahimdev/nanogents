@@ -15,7 +15,11 @@
       "Bash(git checkout -- nanobot_logo.png nanobot_arch.png 2>/dev/null; git status --short)",
       "Bash(sed -i 's/\\\\r$//' /mnt/d/Projects/nanogents/setup.sh && bash -n /mnt/d/Projects/nanogents/setup.sh && echo \"syntax OK\")",
       "Bash(bash -e -c '\ncount=0\n# no iterations — count stays 0\necho \"Templates synced \\($count new files\\)\"\necho \"no crash with count=0\"\n')",
-      "Bash(git -C /mnt/d/Projects/nanogents ls-files --cached 'bridge/package-lock.json' '**/package-lock.json')"
+      "Bash(git -C /mnt/d/Projects/nanogents ls-files --cached 'bridge/package-lock.json' '**/package-lock.json')",
+      "Bash(sed -i 's/\\\\r$//' /mnt/d/Projects/nanogents/scripts/start.sh && chmod +x /mnt/d/Projects/nanogents/scripts/start.sh && bash -n /mnt/d/Projects/nanogents/scripts/start.sh && echo \"syntax OK\")",
+      "Bash(sed -i 's/\\\\r$//' /mnt/d/Projects/nanogents/setup.sh /mnt/d/Projects/nanogents/scripts/wizard.py && bash -n /mnt/d/Projects/nanogents/setup.sh && echo \"setup.sh: OK\" && python3 -c \"import ast; ast.parse\\(open\\('/mnt/d/Projects/nanogents/scripts/wizard.py'\\).read\\(\\)\\); print\\('wizard.py: OK'\\)\")",
+      "Bash(sed -i 's/\\\\r$//' /mnt/d/Projects/nanogents/scripts/wizard.py && python3 -c \"import ast; ast.parse\\(open\\('/mnt/d/Projects/nanogents/scripts/wizard.py'\\).read\\(\\)\\); print\\('OK'\\)\")",
+      "Bash(python3 -c \"\nimport sys\nsys.path.insert\\(0, '/mnt/d/Projects/nanogents/scripts'\\)\nfrom wizard import PROVIDERS\nprint\\(f'Total providers: {len\\(PROVIDERS\\)}'\\)\nfor i, p in enumerate\\(PROVIDERS\\):\n    oauth = ' \\(OAuth\\)' if p.get\\('is_oauth'\\) else ''\n    base = ' +apiBase' if p.get\\('needs_api_base'\\) else ''\n    print\\(f'  {i+1:2}\\) {p[\\\\\"label\\\\\"]:<30} → {p[\\\\\"value\\\\\"]}{oauth}{base}'\\)\n\")"
     ]
   }
 }

@@ -8,6 +8,9 @@ Generates ~/.nanobot/config.json with all your settings.
 
 import json
 import os
+import shutil
+import signal
+import subprocess
 import sys
 from pathlib import Path
 
@@ -163,8 +166,10 @@ def ask_multi_choice(prompt: str, options: list[dict]) -> list[dict]:
 
 
 # ── Provider definitions ────────────────────────────────────────────────────
+# Full list from README. Grouped: gateways first, then direct, then local/OAuth.
 
 PROVIDERS = [
+    # ── Gateways (access to all models) ──
     {
         "label": "OpenRouter",
         "value": "openrouter",
@@ -180,7 +185,19 @@ PROVIDERS = [
         ],
     },
     {
-        "label": "Anthropic (Direct)",
+        "label": "AiHubMix",
+        "value": "aihubmix",
+        "desc": "API gateway — access to all models",
+        "key_hint": "Get key at: https://aihubmix.com",
+        "key_prefix": "",
+        "models": [
+            {"label": "Claude Opus 4.5", "value": "anthropic/claude-opus-4-5", "desc": "Most capable"},
+            {"label": "GPT-4o", "value": "openai/gpt-4o", "desc": "OpenAI flagship"},
+        ],
+    },
+    # ── Direct providers ──
+    {
+        "label": "Anthropic",
         "value": "anthropic",
         "desc": "Claude models directly",
         "key_hint": "Get key at: https://console.anthropic.com/settings/keys",
@@ -191,7 +208,7 @@ PROVIDERS = [
         ],
     },
     {
-        "label": "OpenAI (Direct)",
+        "label": "OpenAI",
         "value": "openai",
         "desc": "GPT models directly",
         "key_hint": "Get key at: https://platform.openai.com/api-keys",
@@ -202,7 +219,7 @@ PROVIDERS = [
         ],
     },
     {
-        "label": "DeepSeek (Direct)",
+        "label": "DeepSeek",
         "value": "deepseek",
         "desc": "Budget-friendly, great for coding",
         "key_hint": "Get key at: https://platform.deepseek.com/api_keys",
@@ -213,7 +230,7 @@ PROVIDERS = [
         ],
     },
     {
-        "label": "Gemini (Direct)",
+        "label": "Gemini",
         "value": "gemini",
         "desc": "Google Gemini models",
         "key_hint": "Get key at: https://aistudio.google.com/apikey",
@@ -226,11 +243,131 @@ PROVIDERS = [
     {
         "label": "Groq",
         "value": "groq",
-        "desc": "Ultra-fast inference + free voice transcription",
+        "desc": "Ultra-fast inference + free Whisper voice transcription",
         "key_hint": "Get key at: https://console.groq.com/keys",
         "key_prefix": "gsk_",
         "models": [
             {"label": "Llama 3.3 70B", "value": "llama-3.3-70b-versatile", "desc": "Best on Groq"},
+        ],
+    },
+    {
+        "label": "MiniMax",
+        "value": "minimax",
+        "desc": "MiniMax models directly",
+        "key_hint": "Get key at: https://platform.minimaxi.com",
+        "key_prefix": "",
+        "needs_api_base": True,
+        "api_base_hint": "Mainland China? Use: https://api.minimaxi.com/v1",
+        "models": [
+            {"label": "MiniMax default", "value": "minimax", "desc": "Default model"},
+        ],
+    },
+    {
+        "label": "SiliconFlow",
+        "value": "siliconflow",
+        "desc": "SiliconFlow (硅基流动)",
+        "key_hint": "Get key at: https://siliconflow.cn",
+        "key_prefix": "",
+        "models": [
+            {"label": "DeepSeek V3", "value": "deepseek-chat", "desc": "Via SiliconFlow"},
+        ],
+    },
+    {
+        "label": "VolcEngine",
+        "value": "volcengine",
+        "desc": "VolcEngine (火山引擎)",
+        "key_hint": "Get key at: https://www.volcengine.com",
+        "key_prefix": "",
+        "needs_api_base": True,
+        "api_base_hint": "Coding plan? Use: https://ark.cn-beijing.volces.com/api/coding/v3",
+        "models": [
+            {"label": "VolcEngine default", "value": "volcengine", "desc": "Default model"},
+        ],
+    },
+    {
+        "label": "DashScope (Qwen)",
+        "value": "dashscope",
+        "desc": "Alibaba Qwen models",
+        "key_hint": "Get key at: https://dashscope.console.aliyun.com",
+        "key_prefix": "",
+        "models": [
+            {"label": "Qwen Max", "value": "qwen-max", "desc": "Most capable"},
+            {"label": "Qwen Plus", "value": "qwen-plus", "desc": "Balanced"},
+        ],
+    },
+    {
+        "label": "Moonshot (Kimi)",
+        "value": "moonshot",
+        "desc": "Moonshot/Kimi models",
+        "key_hint": "Get key at: https://platform.moonshot.cn",
+        "key_prefix": "",
+        "models": [
+            {"label": "Kimi default", "value": "moonshot-v1-8k", "desc": "Default"},
+        ],
+    },
+    {
+        "label": "Zhipu (GLM)",
+        "value": "zhipu",
+        "desc": "Zhipu GLM models",
+        "key_hint": "Get key at: https://open.bigmodel.cn",
+        "key_prefix": "",
+        "needs_api_base": True,
+        "api_base_hint": "Coding plan? Use: https://open.bigmodel.cn/api/coding/paas/v4",
+        "models": [
+            {"label": "GLM-4", "value": "glm-4", "desc": "Latest"},
+        ],
+    },
+    # ── Local ──
+    {
+        "label": "vLLM / Local",
+        "value": "vllm",
+        "desc": "Local LLM server (any OpenAI-compatible endpoint)",
+        "key_hint": "No key needed for local. Start your server first, e.g.:\n"
+                    "           vllm serve meta-llama/Llama-3.1-8B-Instruct --port 8000",
+        "key_prefix": "",
+        "needs_api_base": True,
+        "api_base_default": "http://localhost:8000/v1",
+        "api_base_hint": "URL of your local OpenAI-compatible server",
+        "allow_dummy_key": True,
+        "models": [
+            {"label": "Enter model name manually", "value": "__custom__", "desc": "Type your model ID"},
+        ],
+    },
+    # ── Custom endpoint ──
+    {
+        "label": "Custom (OpenAI-compatible)",
+        "value": "custom",
+        "desc": "Any OpenAI-compatible API (LM Studio, Together AI, Fireworks, Azure, etc.)",
+        "key_hint": "Enter your API key for the custom endpoint",
+        "key_prefix": "",
+        "needs_api_base": True,
+        "api_base_hint": "Full URL, e.g. https://api.your-provider.com/v1",
+        "allow_dummy_key": True,
+        "models": [
+            {"label": "Enter model name manually", "value": "__custom__", "desc": "Type your model ID"},
+        ],
+    },
+    # ── OAuth providers ──
+    {
+        "label": "OpenAI Codex (OAuth)",
+        "value": "openai_codex",
+        "desc": "Codex — requires ChatGPT Plus/Pro account",
+        "key_hint": "Login with: nanobot provider login openai-codex",
+        "key_prefix": "",
+        "is_oauth": True,
+        "models": [
+            {"label": "GPT-5.1 Codex", "value": "openai-codex/gpt-5.1-codex", "desc": "Codex model"},
+        ],
+    },
+    {
+        "label": "GitHub Copilot (OAuth)",
+        "value": "github_copilot",
+        "desc": "GitHub Copilot — requires Copilot subscription",
+        "key_hint": "Login with: nanobot provider login github-copilot",
+        "key_prefix": "",
+        "is_oauth": True,
+        "models": [
+            {"label": "Copilot default", "value": "github_copilot", "desc": "Copilot model"},
         ],
     },
 ]
@@ -472,12 +609,15 @@ class SetupWizard:
         info("Press Enter to accept defaults (shown in brackets).")
         info("Press Ctrl+C at any time to quit.\n")
 
+        self._whatsapp_selected = False
+
         self.step_provider()
         self.step_model()
         self.step_channels()
         self.step_web_search()
         self.step_tools()
         self.step_save()
+        self.step_whatsapp_login()
 
     # ── Step 1: Provider ────────────────────────────────────────────────────
 
@@ -499,19 +639,53 @@ class SetupWizard:
         info(provider["key_hint"])
         print()
 
-        api_key = ask(
-            f"{provider['label']} API key",
-            default=existing_providers.get(provider_name, {}).get("apiKey", ""),
-            secret=True,
-            required=True,
-        )
+        # OAuth providers don't need API keys
+        if provider.get("is_oauth"):
+            warn("This provider uses OAuth login. After setup, run:")
+            info(f"  {provider['key_hint']}")
+            self.config.setdefault("providers", {})
+            self.config["providers"][provider_name] = {}
+            self._chosen_provider = provider
+            ok(f"{provider['label']} selected! Remember to login after setup.")
+            return
+
+        # API key
+        existing_key = existing_providers.get(provider_name, {}).get("apiKey", "")
+        if provider.get("allow_dummy_key"):
+            api_key = ask(
+                f"{provider['label']} API key (or any string for local)",
+                default=existing_key or "no-key",
+                secret=True,
+            )
+        else:
+            api_key = ask(
+                f"{provider['label']} API key",
+                default=existing_key,
+                secret=True,
+                required=True,
+            )
 
         # Validate key prefix
-        if provider.get("key_prefix") and not api_key.startswith(provider["key_prefix"]):
+        if provider.get("key_prefix") and api_key and not api_key.startswith(provider["key_prefix"]):
             warn(f"Key doesn't start with '{provider['key_prefix']}' — double-check it's correct")
 
+        provider_config: dict = {"apiKey": api_key}
+
+        # API base URL (for custom, vllm, and some providers)
+        if provider.get("needs_api_base"):
+            if provider.get("api_base_hint"):
+                info(provider["api_base_hint"])
+            existing_base = existing_providers.get(provider_name, {}).get("apiBase", "")
+            api_base = ask(
+                "API base URL",
+                default=existing_base or provider.get("api_base_default", ""),
+                required=(provider_name in ("custom", "vllm")),
+            )
+            if api_base:
+                provider_config["apiBase"] = api_base
+
         self.config.setdefault("providers", {})
-        self.config["providers"][provider_name] = {"apiKey": api_key}
+        self.config["providers"][provider_name] = provider_config
 
         # Store chosen provider for model step
         self._chosen_provider = provider
@@ -529,6 +703,10 @@ class SetupWizard:
             model_choice = ask_choice("Which model do you want to use?", provider["models"])
             model = model_choice["value"]
             provider_name = provider["value"]
+
+            # Custom model entry
+            if model == "__custom__":
+                model = ask("Enter your model name/ID", required=True)
         else:
             # Fallback: manual entry
             model = ask("Model name", default="anthropic/claude-sonnet-4-5", required=True)
@@ -600,9 +778,10 @@ class SetupWizard:
                 if ch_config.get("imapPassword"):
                     ch_config.setdefault("smtpPassword", ch_config["imapPassword"])
 
-            # WhatsApp defaults
+            # WhatsApp defaults + QR login flow
             if ch_name == "whatsapp":
                 ch_config.setdefault("bridgeUrl", "ws://localhost:3001")
+                self._whatsapp_selected = True
 
             self.config["channels"][ch_name] = ch_config
             ok(f"{channel['label']} configured!")
@@ -659,6 +838,81 @@ class SetupWizard:
         else:
             self.config["tools"]["restrictToWorkspace"] = True
             ok("Sandbox mode — agent restricted to workspace only")
+
+    # ── WhatsApp Login ─────────────────────────────────────────────────────
+
+    def step_whatsapp_login(self):
+        """If WhatsApp was selected, offer to scan QR code now."""
+        if not self._whatsapp_selected:
+            return
+
+        # Find the bridge directory
+        script_dir = Path(__file__).resolve().parent.parent
+        bridge_dir = script_dir / "bridge"
+        bridge_entry = bridge_dir / "dist" / "index.js"
+
+        # Check if bridge is built
+        if not bridge_entry.exists():
+            warn("WhatsApp bridge not built. Skipping QR login.")
+            info("Build it manually: cd bridge && npm install && npm run build")
+            return
+
+        # Check Node.js
+        if not shutil.which("node"):
+            warn("Node.js not found. Skipping WhatsApp QR login.")
+            return
+
+        # Check if already linked
+        auth_dir = Path.home() / ".nanobot" / "whatsapp-auth"
+        if auth_dir.exists() and any(auth_dir.iterdir()):
+            ok("WhatsApp already linked!")
+            if not ask_yes_no("Re-link WhatsApp? (scan QR again)", default=False):
+                return
+
+        section(6, "WhatsApp Login", "Scan QR code to link your WhatsApp")
+
+        print(f"  {MAGENTA}{BOLD}┌────────────────────────────────────────────┐{NC}")
+        print(f"  {MAGENTA}{BOLD}│  📱  WhatsApp QR Code Login                │{NC}")
+        print(f"  {MAGENTA}{BOLD}└────────────────────────────────────────────┘{NC}")
+        print()
+        info("A QR code will appear below.")
+        info("On your phone:")
+        info("  WhatsApp → Settings → Linked Devices → Link a Device")
+        info("  Scan the QR code with your phone camera.")
+        print()
+        warn("After you see '✅ Connected to WhatsApp', press Ctrl+C to continue.")
+        print()
+        warn("NOTE: Someone ELSE must message your WhatsApp number for the bot")
+        warn("to respond. Messages you send to yourself are ignored by design.")
+        print()
+
+        if not ask_yes_no("Ready to scan QR code now?", default=True):
+            info("Skipped. You can link later with: nanobot channels login")
+            return
+
+        print()
+        print(f"  {DIM}────── WhatsApp Bridge Output ──────{NC}")
+        print()
+
+        try:
+            # Run the bridge in foreground; Ctrl+C stops it and returns here
+            subprocess.run(
+                ["node", str(bridge_entry)],
+                cwd=str(bridge_dir),
+            )
+        except KeyboardInterrupt:
+            pass
+
+        print()
+        print(f"  {DIM}────── End Bridge Output ───────────{NC}")
+        print()
+
+        # Check if session was created
+        if auth_dir.exists() and any(auth_dir.iterdir()):
+            ok("WhatsApp linked successfully!")
+        else:
+            warn("WhatsApp session not detected. You can try again later:")
+            info("  nanobot channels login")
 
     # ── Save ────────────────────────────────────────────────────────────────
 

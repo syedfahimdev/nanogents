@@ -1,7 +1,13 @@
 #!/usr/bin/env bash
 # ============================================================================
-#  nanogents - One-Click Interactive Setup
-#  Run: bash setup.sh
+#  nanogents - One-Click Interactive Setup & Deploy
+#
+#  Usage:
+#    bash setup.sh            # full setup (install + configure + launch)
+#    bash setup.sh --reset    # clear state and start fresh
+#
+#  After setup, manage with:
+#    bash scripts/start.sh --status | --stop | --logs
 #
 #  Safe to re-run — tracks completed steps and resumes where it left off.
 # ============================================================================
@@ -12,6 +18,7 @@ RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
 BOLD='\033[1m'
 DIM='\033[2m'
@@ -19,11 +26,14 @@ NC='\033[0m'
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 STATE_FILE="$HOME/.nanobot/.setup_state"
-TOTAL_STEPS=5
+VENV_DIR="$SCRIPT_DIR/.venv"
+LOG_DIR="$HOME/.nanobot/logs"
+BRIDGE_DIR="$SCRIPT_DIR/bridge"
+BRIDGE_PID_FILE="$HOME/.nanobot/.bridge.pid"
+GATEWAY_PID_FILE="$HOME/.nanobot/.gateway.pid"
+TOTAL_STEPS=6
 
 # ── State tracking ─────────────────────────────────────────────────────────
-# Each step writes its name to the state file on completion.
-# Re-running the script skips already-completed steps.
 
 mark_done() {
     mkdir -p "$(dirname "$STATE_FILE")"
@@ -87,7 +97,58 @@ detect_os() {
     fi
 }
 
-# ── Step 1: System Dependencies ────────────────────────────────────────────
+# ── Process helpers ────────────────────────────────────────────────────────
+
+is_running() {
+    local pidfile="$1"
+    if [ -f "$pidfile" ]; then
+        local pid
+        pid=$(cat "$pidfile")
+        if kill -0 "$pid" 2>/dev/null; then
+            return 0
+        fi
+        rm -f "$pidfile"
+    fi
+    return 1
+}
+
+stop_pid() {
+    local pidfile="$1"
+    local label="$2"
+    if is_running "$pidfile"; then
+        local pid
+        pid=$(cat "$pidfile")
+        kill "$pid" 2>/dev/null || true
+        wait "$pid" 2>/dev/null || true
+        rm -f "$pidfile"
+        print_ok "$label stopped (PID $pid)"
+    fi
+}
+
+whatsapp_enabled() {
+    local config="$HOME/.nanobot/config.json"
+    [ -f "$config" ] && python3 -c "
+import json, sys
+c = json.load(open('$config'))
+wa = c.get('channels', {}).get('whatsapp', {})
+sys.exit(0 if wa.get('enabled') else 1)
+" 2>/dev/null
+}
+
+has_whatsapp_session() {
+    [ -d "$HOME/.nanobot/whatsapp-auth" ] && [ "$(ls -A "$HOME/.nanobot/whatsapp-auth" 2>/dev/null)" ]
+}
+
+activate_venv() {
+    if [ -f "$VENV_DIR/bin/activate" ]; then
+        # shellcheck disable=SC1091
+        source "$VENV_DIR/bin/activate"
+    fi
+}
+
+# ============================================================================
+#  STEP 1: System Dependencies
+# ============================================================================
 step_system_deps() {
     local STEP_ID="system_deps"
 
@@ -106,7 +167,6 @@ step_system_deps() {
 
     # ── Required ──
 
-    # Python 3.11+
     if command -v python3 &>/dev/null; then
         local py_ver
         py_ver=$(python3 --version 2>&1 | grep -oP '\d+\.\d+')
@@ -121,7 +181,6 @@ step_system_deps() {
         MISSING+=("python3")
     fi
 
-    # pip
     if python3 -m pip --version &>/dev/null 2>&1; then
         print_ok "pip"
     else
@@ -129,7 +188,6 @@ step_system_deps() {
         MISSING+=("pip")
     fi
 
-    # python3-venv (needed on Debian/Ubuntu for PEP 668)
     if python3 -c "import venv" &>/dev/null 2>&1; then
         print_ok "python3-venv"
     else
@@ -137,7 +195,6 @@ step_system_deps() {
         MISSING+=("python3-venv")
     fi
 
-    # git
     if command -v git &>/dev/null; then
         print_ok "git $(git --version | grep -oP '\d+\.\d+\.\d+')"
     else
@@ -147,7 +204,6 @@ step_system_deps() {
 
     # ── Optional ──
 
-    # Node.js (for WhatsApp bridge)
     if command -v node &>/dev/null; then
         print_ok "Node.js $(node --version)"
     else
@@ -155,15 +211,14 @@ step_system_deps() {
         OPTIONAL_MISSING+=("nodejs")
     fi
 
-    # Docker
     if command -v docker &>/dev/null; then
         print_ok "Docker $(docker --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)"
     else
-        print_warn "Docker not found (needed for VPS deployment)"
+        print_warn "Docker not found (needed for container deployment)"
         OPTIONAL_MISSING+=("docker")
     fi
 
-    # ── Install missing required deps ──
+    # ── Install missing required ──
 
     local OS
     OS=$(detect_os)
@@ -204,7 +259,7 @@ step_system_deps() {
         fi
     fi
 
-    # ── Install missing optional deps ──
+    # ── Install missing optional ──
 
     if [ ${#OPTIONAL_MISSING[@]} -gt 0 ]; then
         echo ""
@@ -243,7 +298,7 @@ step_system_deps() {
                     fi
                     ;;
                 docker)
-                    if confirm "Install Docker? (needed for VPS deployment)" "N"; then
+                    if confirm "Install Docker? (needed for container deployment)" "N"; then
                         print_info "Installing Docker via official script..."
                         curl -fsSL https://get.docker.com | sudo sh
                         sudo systemctl enable --now docker 2>/dev/null || true
@@ -251,7 +306,7 @@ step_system_deps() {
                             print_ok "Docker installed"
                         fi
                     else
-                        print_info "Skipped Docker (you can install later for VPS deployment)"
+                        print_info "Skipped Docker"
                     fi
                     ;;
             esac
@@ -262,16 +317,17 @@ step_system_deps() {
     print_ok "System dependencies ready"
 }
 
-# ── Step 2: Python Virtual Environment ─────────────────────────────────────
+# ============================================================================
+#  STEP 2: Python Virtual Environment
+# ============================================================================
 step_venv() {
     local STEP_ID="venv"
-    local VENV_DIR="$SCRIPT_DIR/.venv"
 
     if is_done "$STEP_ID"; then
         print_step 2 "Python environment"
         print_skip "Virtual environment already set up"
-        # Still activate it for subsequent steps
         activate_venv
+        print_ok "Using Python: $(which python3)"
         if ! confirm "Re-create venv?" "N"; then
             return
         fi
@@ -289,6 +345,8 @@ step_venv() {
         print_ok "Virtual environment created"
     fi
 
+    print_ok "Using Python: $(which python3)"
+
     # Upgrade pip inside venv
     print_info "Upgrading pip..."
     pip install --upgrade pip --quiet 2>&1 | tail -1 || true
@@ -297,14 +355,9 @@ step_venv() {
     mark_done "$STEP_ID"
 }
 
-activate_venv() {
-    local VENV_DIR="$SCRIPT_DIR/.venv"
-    # shellcheck disable=SC1091
-    source "$VENV_DIR/bin/activate"
-    print_ok "Using Python: $(which python3)"
-}
-
-# ── Step 3: Install nanogents ──────────────────────────────────────────────
+# ============================================================================
+#  STEP 3: Install nanogents
+# ============================================================================
 step_install() {
     local STEP_ID="install"
 
@@ -312,7 +365,6 @@ step_install() {
         print_step 3 "Installing nanogents"
         print_skip "nanogents already installed"
         if confirm "Reinstall / update?" "N"; then
-            # Fall through to install
             :
         else
             return
@@ -331,9 +383,9 @@ step_install() {
     fi
 
     # Build WhatsApp bridge if Node.js is available
-    if command -v node &>/dev/null && [ -f "$SCRIPT_DIR/bridge/package.json" ]; then
+    if command -v node &>/dev/null && [ -f "$BRIDGE_DIR/package.json" ]; then
         print_info "Building WhatsApp bridge..."
-        (cd "$SCRIPT_DIR/bridge" && npm install --silent 2>&1 | tail -2 && npm run build --silent 2>&1 | tail -2) || {
+        (cd "$BRIDGE_DIR" && npm install --silent 2>&1 | tail -2 && npm run build --silent 2>&1 | tail -2) || {
             print_warn "WhatsApp bridge build failed (non-critical, you can fix later)"
         }
         print_ok "WhatsApp bridge built"
@@ -344,11 +396,10 @@ step_install() {
         print_ok "nanobot command: $(which nanobot)"
     else
         print_warn "'nanobot' not found in PATH"
-        print_info "Activate the venv first: source .venv/bin/activate"
     fi
 
     # Add venv auto-activation to shell profile
-    local VENV_ACTIVATE="$SCRIPT_DIR/.venv/bin/activate"
+    local VENV_ACTIVATE="$VENV_DIR/bin/activate"
     local SHELL_RC=""
 
     if [ -n "${ZSH_VERSION:-}" ] || [ "$(basename "${SHELL:-}")" = "zsh" ]; then
@@ -368,14 +419,15 @@ step_install() {
                 echo "[ -f \"$VENV_ACTIVATE\" ] && source \"$VENV_ACTIVATE\""
             } >> "$SHELL_RC"
             print_ok "Added to $SHELL_RC — nanobot will work in every new terminal"
-            print_info "For this session: source $VENV_ACTIVATE"
         fi
     fi
 
     mark_done "$STEP_ID"
 }
 
-# ── Step 4: Initialize workspace ──────────────────────────────────────────
+# ============================================================================
+#  STEP 4: Initialize workspace
+# ============================================================================
 step_workspace() {
     local STEP_ID="workspace"
 
@@ -390,9 +442,10 @@ step_workspace() {
     local NANOBOT_HOME="$HOME/.nanobot"
     local WORKSPACE="$NANOBOT_HOME/workspace"
 
-    mkdir -p "$WORKSPACE"
+    mkdir -p "$WORKSPACE" "$LOG_DIR"
     print_ok "Config directory: $NANOBOT_HOME"
     print_ok "Workspace: $WORKSPACE"
+    print_ok "Logs: $LOG_DIR"
 
     # Sync templates
     local TEMPLATE_SRC="$SCRIPT_DIR/nanobot/templates"
@@ -413,7 +466,9 @@ step_workspace() {
     mark_done "$STEP_ID"
 }
 
-# ── Step 5: Run interactive wizard ─────────────────────────────────────────
+# ============================================================================
+#  STEP 5: Interactive configuration wizard
+# ============================================================================
 step_wizard() {
     local STEP_ID="wizard"
 
@@ -421,7 +476,6 @@ step_wizard() {
         print_step 5 "Configuration"
         print_skip "Configuration wizard already completed"
         if confirm "Run wizard again? (existing config will be preserved)" "N"; then
-            # Fall through
             :
         else
             return
@@ -439,7 +493,158 @@ step_wizard() {
     mark_done "$STEP_ID"
 }
 
-# ── Summary ────────────────────────────────────────────────────────────────
+# ============================================================================
+#  STEP 6: Launch services
+# ============================================================================
+step_launch() {
+    local STEP_ID="launch"
+
+    print_step 6 "Launch services"
+
+    mkdir -p "$LOG_DIR"
+
+    echo ""
+    if confirm "Install systemd services? (auto-start on boot, recommended for VPS)" "Y"; then
+        install_systemd_services
+    else
+        if confirm "Start nanogents now in background?" "Y"; then
+            start_background
+        else
+            print_info "You can start later with: bash scripts/start.sh"
+        fi
+    fi
+
+    mark_done "$STEP_ID"
+}
+
+install_systemd_services() {
+    print_info "Creating systemd services..."
+
+    # ── WhatsApp bridge service ──
+    if whatsapp_enabled && [ -f "$BRIDGE_DIR/dist/index.js" ]; then
+        cat > /etc/systemd/system/nanogents-bridge.service <<UNIT
+[Unit]
+Description=nanogents WhatsApp Bridge
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=$BRIDGE_DIR
+ExecStart=$(command -v node) dist/index.js
+Restart=always
+RestartSec=10
+Environment=NODE_ENV=production
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+        print_ok "Created nanogents-bridge.service"
+    fi
+
+    # ── Gateway service ──
+    local AFTER="network.target"
+    local REQUIRES=""
+    if whatsapp_enabled && [ -f /etc/systemd/system/nanogents-bridge.service ]; then
+        AFTER="network.target nanogents-bridge.service"
+        REQUIRES="Requires=nanogents-bridge.service"
+    fi
+
+    cat > /etc/systemd/system/nanogents.service <<UNIT
+[Unit]
+Description=nanogents Gateway
+After=$AFTER
+$REQUIRES
+
+[Service]
+Type=simple
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=$VENV_DIR/bin/nanobot gateway
+Restart=always
+RestartSec=10
+Environment=PATH=$VENV_DIR/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+    print_ok "Created nanogents.service"
+
+    # Reload and enable
+    systemctl daemon-reload
+
+    if whatsapp_enabled && [ -f /etc/systemd/system/nanogents-bridge.service ]; then
+        systemctl enable nanogents-bridge nanogents 2>/dev/null
+        systemctl restart nanogents-bridge nanogents
+        sleep 3
+
+        if systemctl is-active --quiet nanogents; then
+            print_ok "Gateway running"
+        else
+            print_err "Gateway failed to start"
+            print_info "Check: journalctl -u nanogents -e"
+        fi
+
+        if systemctl is-active --quiet nanogents-bridge; then
+            print_ok "WhatsApp bridge running"
+        else
+            print_err "WhatsApp bridge failed to start"
+            print_info "Check: journalctl -u nanogents-bridge -e"
+        fi
+    else
+        systemctl enable nanogents 2>/dev/null
+        systemctl restart nanogents
+        sleep 3
+
+        if systemctl is-active --quiet nanogents; then
+            print_ok "Gateway running"
+        else
+            print_err "Gateway failed to start"
+            print_info "Check: journalctl -u nanogents -e"
+        fi
+    fi
+
+    print_ok "Services enabled — will auto-start on boot"
+}
+
+start_background() {
+    # ── WhatsApp bridge ──
+    if whatsapp_enabled && [ -f "$BRIDGE_DIR/dist/index.js" ]; then
+        if is_running "$BRIDGE_PID_FILE"; then
+            print_ok "WhatsApp bridge already running (PID $(cat "$BRIDGE_PID_FILE"))"
+        else
+            print_info "Starting WhatsApp bridge..."
+            (cd "$BRIDGE_DIR" && nohup node dist/index.js >> "$LOG_DIR/bridge.log" 2>&1 &
+            echo $! > "$BRIDGE_PID_FILE")
+
+            sleep 3
+            if is_running "$BRIDGE_PID_FILE"; then
+                print_ok "WhatsApp bridge started (PID $(cat "$BRIDGE_PID_FILE"))"
+            else
+                print_err "WhatsApp bridge failed. Check: $LOG_DIR/bridge.log"
+            fi
+        fi
+    fi
+
+    # ── Gateway ──
+    if is_running "$GATEWAY_PID_FILE"; then
+        print_ok "Gateway already running (PID $(cat "$GATEWAY_PID_FILE"))"
+    else
+        print_info "Starting gateway..."
+        activate_venv
+        nohup nanobot gateway >> "$LOG_DIR/gateway.log" 2>&1 &
+        echo $! > "$GATEWAY_PID_FILE"
+
+        sleep 3
+        if is_running "$GATEWAY_PID_FILE"; then
+            print_ok "Gateway started (PID $(cat "$GATEWAY_PID_FILE"))"
+        else
+            print_err "Gateway failed. Check: $LOG_DIR/gateway.log"
+        fi
+    fi
+}
+
+# ============================================================================
+#  Summary
+# ============================================================================
 print_summary() {
     echo ""
     echo -e "${GREEN}${BOLD}"
@@ -449,31 +654,65 @@ print_summary() {
     echo "  │                                             │"
     echo "  └─────────────────────────────────────────────┘"
     echo -e "${NC}"
-    echo -e "  ${BOLD}Open a new terminal${NC}, then run:"
-    echo ""
-    echo -e "    ${CYAN}nanobot agent${NC}          # interactive chat"
-    echo -e "    ${CYAN}nanobot gateway${NC}        # start gateway (Telegram, Discord, etc.)"
-    echo -e "    ${CYAN}nanobot status${NC}         # check status"
-    echo ""
 
-    # WhatsApp hint
-    if [ -f "$HOME/.nanobot/config.json" ] && grep -q '"whatsapp"' "$HOME/.nanobot/config.json" 2>/dev/null; then
-        echo -e "  ${BOLD}WhatsApp:${NC} Start the bridge first in a separate terminal:"
-        echo ""
-        echo -e "    ${CYAN}cd ${SCRIPT_DIR}/bridge && node dist/index.js${NC}"
-        echo -e "    ${DIM}(scan QR code, then run 'nanobot gateway' in another terminal)${NC}"
-        echo ""
+    # Show service status
+    if systemctl is-active --quiet nanogents 2>/dev/null; then
+        echo -e "  ${GREEN}●${NC} Gateway is ${GREEN}running${NC}"
+    elif is_running "$GATEWAY_PID_FILE"; then
+        echo -e "  ${GREEN}●${NC} Gateway is ${GREEN}running${NC} (PID $(cat "$GATEWAY_PID_FILE"))"
+    else
+        echo -e "  ${RED}●${NC} Gateway is ${RED}not running${NC}"
     fi
 
+    if whatsapp_enabled; then
+        if systemctl is-active --quiet nanogents-bridge 2>/dev/null; then
+            echo -e "  ${GREEN}●${NC} WhatsApp bridge is ${GREEN}running${NC}"
+        elif is_running "$BRIDGE_PID_FILE"; then
+            echo -e "  ${GREEN}●${NC} WhatsApp bridge is ${GREEN}running${NC} (PID $(cat "$BRIDGE_PID_FILE"))"
+        else
+            echo -e "  ${RED}●${NC} WhatsApp bridge is ${RED}not running${NC}"
+        fi
+    fi
+
+    echo ""
+    echo -e "  ${BOLD}Commands:${NC}"
+    echo ""
+    echo -e "    ${CYAN}nanobot agent${NC}                    # interactive chat (CLI)"
+    echo -e "    ${CYAN}nanobot status${NC}                   # check nanobot status"
+    echo ""
+
+    # Show appropriate management commands
+    if systemctl is-enabled --quiet nanogents 2>/dev/null; then
+        echo -e "  ${BOLD}Manage services:${NC}"
+        echo ""
+        echo -e "    ${CYAN}systemctl status nanogents${NC}       # gateway status"
+        echo -e "    ${CYAN}systemctl restart nanogents${NC}      # restart gateway"
+        echo -e "    ${CYAN}journalctl -u nanogents -f${NC}       # follow gateway logs"
+        if whatsapp_enabled; then
+            echo -e "    ${CYAN}journalctl -u nanogents-bridge -f${NC}  # WhatsApp bridge logs"
+        fi
+    else
+        echo -e "  ${BOLD}Manage processes:${NC}"
+        echo ""
+        echo -e "    ${CYAN}bash scripts/start.sh${NC}            # start everything"
+        echo -e "    ${CYAN}bash scripts/start.sh --stop${NC}     # stop everything"
+        echo -e "    ${CYAN}bash scripts/start.sh --status${NC}   # check status"
+        echo -e "    ${CYAN}bash scripts/start.sh --logs${NC}     # tail logs"
+    fi
+
+    echo ""
     echo -e "  ${BOLD}Config:${NC}    ~/.nanobot/config.json"
     echo -e "  ${BOLD}Workspace:${NC} ~/.nanobot/workspace/"
+    echo -e "  ${BOLD}Logs:${NC}      $LOG_DIR/"
     echo ""
     echo -e "  ${DIM}Re-run this script anytime — it picks up where it left off.${NC}"
     echo -e "  ${DIM}To start fresh: bash setup.sh --reset${NC}"
     echo ""
 }
 
-# ── Main ───────────────────────────────────────────────────────────────────
+# ============================================================================
+#  Main
+# ============================================================================
 main() {
     # Handle --reset flag
     if [ "${1:-}" = "--reset" ]; then
@@ -491,11 +730,14 @@ main() {
     fi
 
     print_banner
-    step_system_deps
-    step_venv
-    step_install
-    step_workspace
-    step_wizard
+
+    step_system_deps      # 1. System deps (Python, Node.js, Docker)
+    step_venv             # 2. Virtual environment
+    step_install          # 3. Install nanogents + build bridge + PATH
+    step_workspace        # 4. Create workspace + sync templates
+    step_wizard           # 5. Interactive config (provider, model, channels, WhatsApp QR)
+    step_launch           # 6. Start services (systemd or background)
+
     print_summary
 }
 
