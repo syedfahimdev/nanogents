@@ -347,6 +347,31 @@ step_install() {
         print_info "Activate the venv first: source .venv/bin/activate"
     fi
 
+    # Add venv auto-activation to shell profile
+    local VENV_ACTIVATE="$SCRIPT_DIR/.venv/bin/activate"
+    local SHELL_RC=""
+
+    if [ -n "${ZSH_VERSION:-}" ] || [ "$(basename "${SHELL:-}")" = "zsh" ]; then
+        SHELL_RC="$HOME/.zshrc"
+    else
+        SHELL_RC="$HOME/.bashrc"
+    fi
+
+    local ACTIVATE_LINE="# nanogents venv auto-activate"
+    if [ -f "$SHELL_RC" ] && grep -qF "$ACTIVATE_LINE" "$SHELL_RC" 2>/dev/null; then
+        print_ok "Shell auto-activate already in $SHELL_RC"
+    else
+        if confirm "Add nanobot to your PATH permanently? (auto-activate venv in $SHELL_RC)" "Y"; then
+            {
+                echo ""
+                echo "$ACTIVATE_LINE"
+                echo "[ -f \"$VENV_ACTIVATE\" ] && source \"$VENV_ACTIVATE\""
+            } >> "$SHELL_RC"
+            print_ok "Added to $SHELL_RC — nanobot will work in every new terminal"
+            print_info "For this session: source $VENV_ACTIVATE"
+        fi
+    fi
+
     mark_done "$STEP_ID"
 }
 
@@ -416,8 +441,6 @@ step_wizard() {
 
 # ── Summary ────────────────────────────────────────────────────────────────
 print_summary() {
-    local VENV_DIR="$SCRIPT_DIR/.venv"
-
     echo ""
     echo -e "${GREEN}${BOLD}"
     echo "  ┌─────────────────────────────────────────────┐"
@@ -426,16 +449,22 @@ print_summary() {
     echo "  │                                             │"
     echo "  └─────────────────────────────────────────────┘"
     echo -e "${NC}"
-    echo -e "  ${BOLD}Before each session, activate the venv:${NC}"
-    echo ""
-    echo -e "    ${CYAN}source ${VENV_DIR}/bin/activate${NC}"
-    echo ""
-    echo -e "  ${BOLD}Then run:${NC}"
+    echo -e "  ${BOLD}Open a new terminal${NC}, then run:"
     echo ""
     echo -e "    ${CYAN}nanobot agent${NC}          # interactive chat"
     echo -e "    ${CYAN}nanobot gateway${NC}        # start gateway (Telegram, Discord, etc.)"
     echo -e "    ${CYAN}nanobot status${NC}         # check status"
     echo ""
+
+    # WhatsApp hint
+    if [ -f "$HOME/.nanobot/config.json" ] && grep -q '"whatsapp"' "$HOME/.nanobot/config.json" 2>/dev/null; then
+        echo -e "  ${BOLD}WhatsApp:${NC} Start the bridge first in a separate terminal:"
+        echo ""
+        echo -e "    ${CYAN}cd ${SCRIPT_DIR}/bridge && node dist/index.js${NC}"
+        echo -e "    ${DIM}(scan QR code, then run 'nanobot gateway' in another terminal)${NC}"
+        echo ""
+    fi
+
     echo -e "  ${BOLD}Config:${NC}    ~/.nanobot/config.json"
     echo -e "  ${BOLD}Workspace:${NC} ~/.nanobot/workspace/"
     echo ""
