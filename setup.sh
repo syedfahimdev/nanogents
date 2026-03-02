@@ -375,11 +375,11 @@ step_workspace() {
         local count=0
         for f in "$TEMPLATE_SRC"/*.md; do
             [ -f "$f" ] || continue
-            local basename
-            basename=$(basename "$f")
-            if [ ! -f "$WORKSPACE/$basename" ]; then
-                cp "$f" "$WORKSPACE/$basename"
-                ((count++))
+            local bname
+            bname=$(basename "$f")
+            if [ ! -f "$WORKSPACE/$bname" ]; then
+                cp "$f" "$WORKSPACE/$bname"
+                count=$((count + 1))
             fi
         done
         print_ok "Templates synced ($count new files)"

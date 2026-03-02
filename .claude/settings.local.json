@@ -13,7 +13,9 @@
       "Bash(echo -e \"1\\\\nsk-or-v1-test123456\\\\n2\\\\n1,2\\\\nbot-token-12345\\\\nmyuserid\\\\ndiscord-token-abc\\\\nmydiscordid\\\\nn\\\\n1\\\\ny\" | timeout 10 python3 scripts/wizard.py 2>&1)",
       "Bash(python3 -m json.tool)",
       "Bash(git checkout -- nanobot_logo.png nanobot_arch.png 2>/dev/null; git status --short)",
-      "Bash(sed -i 's/\\\\r$//' /mnt/d/Projects/nanogents/setup.sh && bash -n /mnt/d/Projects/nanogents/setup.sh && echo \"syntax OK\")"
+      "Bash(sed -i 's/\\\\r$//' /mnt/d/Projects/nanogents/setup.sh && bash -n /mnt/d/Projects/nanogents/setup.sh && echo \"syntax OK\")",
+      "Bash(bash -e -c '\ncount=0\n# no iterations — count stays 0\necho \"Templates synced \\($count new files\\)\"\necho \"no crash with count=0\"\n')",
+      "Bash(git -C /mnt/d/Projects/nanogents ls-files --cached 'bridge/package-lock.json' '**/package-lock.json')"
     ]
   }
 }
