@@ -129,6 +129,19 @@ show_status() {
         info "WhatsApp: not enabled"
     fi
 
+    # n8n status
+    if command -v docker &>/dev/null; then
+        local n8n_state
+        n8n_state=$(docker inspect --format '{{.State.Status}}' n8n 2>/dev/null || echo "")
+        if [ "$n8n_state" = "running" ]; then
+            local n8n_domain
+            n8n_domain=$(grep '^N8N_DOMAIN=' "$PROJECT_DIR/.env" 2>/dev/null | cut -d= -f2)
+            ok "n8n: running${n8n_domain:+ (https://$n8n_domain)}"
+        elif [ -n "$n8n_state" ]; then
+            err "n8n: $n8n_state"
+        fi
+    fi
+
     echo ""
     echo -e "  ${BOLD}Logs:${NC} $LOG_DIR/"
     echo ""
@@ -205,6 +218,12 @@ start_all() {
         if is_running "$BRIDGE_PID_FILE"; then
             ok "WhatsApp bridge already running (PID $(cat "$BRIDGE_PID_FILE"))"
         else
+            # Kill anything holding port 3001 from a previous run
+            fuser -k 3001/tcp 2>/dev/null || true
+            sleep 1
+            fuser -k -9 3001/tcp 2>/dev/null || true
+            sleep 1
+
             info "Starting WhatsApp bridge..."
             cd "$BRIDGE_DIR"
             nohup node dist/index.js >> "$LOG_DIR/bridge.log" 2>&1 &

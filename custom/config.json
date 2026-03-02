@@ -1,0 +1,13 @@
+{
+  "providers": {},
+  "agents": {
+    "defaults": {
+      "model": "",
+      "provider": ""
+    }
+  },
+  "tools": {
+    "restrictToWorkspace": false
+  },
+  "channels": {}
+}

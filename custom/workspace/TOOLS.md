@@ -1,0 +1,2 @@
+- Always confirm before deleting files or stopping services
+- Use docker compose (not docker-compose)

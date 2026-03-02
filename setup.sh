@@ -31,7 +31,7 @@ LOG_DIR="$HOME/.nanobot/logs"
 BRIDGE_DIR="$SCRIPT_DIR/bridge"
 BRIDGE_PID_FILE="$HOME/.nanobot/.bridge.pid"
 GATEWAY_PID_FILE="$HOME/.nanobot/.gateway.pid"
-TOTAL_STEPS=6
+TOTAL_STEPS=7
 
 # ── State tracking ─────────────────────────────────────────────────────────
 
@@ -447,20 +447,28 @@ step_workspace() {
     print_ok "Workspace: $WORKSPACE"
     print_ok "Logs: $LOG_DIR"
 
-    # Sync templates
-    local TEMPLATE_SRC="$SCRIPT_DIR/nanobot/templates"
-    if [ -d "$TEMPLATE_SRC" ]; then
-        local count=0
-        for f in "$TEMPLATE_SRC"/*.md; do
-            [ -f "$f" ] || continue
-            local bname
-            bname=$(basename "$f")
-            if [ ! -f "$WORKSPACE/$bname" ]; then
-                cp "$f" "$WORKSPACE/$bname"
-                count=$((count + 1))
-            fi
-        done
-        print_ok "Templates synced ($count new files)"
+    # Restore customizations from repo if available
+    local CUSTOM_DIR="$SCRIPT_DIR/custom"
+    if [ -d "$CUSTOM_DIR/workspace" ] && [ "$(ls -A "$CUSTOM_DIR/workspace" 2>/dev/null)" ]; then
+        print_info "Found saved customizations in repo — restoring..."
+        bash "$SCRIPT_DIR/scripts/sync-custom.sh" pull
+        print_ok "Customizations restored from repo"
+    else
+        # First-time setup — sync default templates
+        local TEMPLATE_SRC="$SCRIPT_DIR/nanobot/templates"
+        if [ -d "$TEMPLATE_SRC" ]; then
+            local count=0
+            for f in "$TEMPLATE_SRC"/*.md; do
+                [ -f "$f" ] || continue
+                local bname
+                bname=$(basename "$f")
+                if [ ! -f "$WORKSPACE/$bname" ]; then
+                    cp "$f" "$WORKSPACE/$bname"
+                    count=$((count + 1))
+                fi
+            done
+            print_ok "Templates synced ($count new files)"
+        fi
     fi
 
     mark_done "$STEP_ID"
@@ -494,12 +502,46 @@ step_wizard() {
 }
 
 # ============================================================================
-#  STEP 6: Launch services
+#  STEP 6: n8n Workflow Automation (optional)
+# ============================================================================
+step_n8n() {
+    local STEP_ID="n8n"
+
+    if is_done "$STEP_ID"; then
+        print_step 6 "n8n Automation"
+        print_skip "n8n already configured"
+        return
+    fi
+
+    print_step 6 "n8n Workflow Automation (optional)"
+
+    echo ""
+    print_info "n8n lets you create visual workflows that your agent can call as tools."
+    print_info "Examples: send emails, update CRM, post to social media, scrape data, etc."
+    echo ""
+
+    if confirm "Set up n8n workflow automation?" "N"; then
+        if ! command -v docker &>/dev/null; then
+            print_err "Docker required for n8n. Skipping."
+            mark_done "$STEP_ID"
+            return
+        fi
+
+        bash "$SCRIPT_DIR/scripts/setup-n8n.sh"
+    else
+        print_info "Skipped. Set up later: bash scripts/setup-n8n.sh"
+    fi
+
+    mark_done "$STEP_ID"
+}
+
+# ============================================================================
+#  STEP 7: Launch services
 # ============================================================================
 step_launch() {
     local STEP_ID="launch"
 
-    print_step 6 "Launch services"
+    print_step 7 "Launch services"
 
     mkdir -p "$LOG_DIR"
 
@@ -701,6 +743,14 @@ print_summary() {
     fi
 
     echo ""
+    # n8n status
+    if docker inspect n8n --format '{{.State.Status}}' 2>/dev/null | grep -q running; then
+        local n8n_domain
+        n8n_domain=$(grep '^N8N_DOMAIN=' "$SCRIPT_DIR/.env" 2>/dev/null | cut -d= -f2)
+        echo -e "  ${GREEN}●${NC} n8n is ${GREEN}running${NC} at ${CYAN}https://${n8n_domain}${NC}"
+    fi
+
+    echo ""
     echo -e "  ${BOLD}Config:${NC}    ~/.nanobot/config.json"
     echo -e "  ${BOLD}Workspace:${NC} ~/.nanobot/workspace/"
     echo -e "  ${BOLD}Logs:${NC}      $LOG_DIR/"
@@ -736,7 +786,8 @@ main() {
     step_install          # 3. Install nanogents + build bridge + PATH
     step_workspace        # 4. Create workspace + sync templates
     step_wizard           # 5. Interactive config (provider, model, channels, WhatsApp QR)
-    step_launch           # 6. Start services (systemd or background)
+    step_n8n              # 6. n8n workflow automation (optional)
+    step_launch           # 7. Start services (systemd or background)
 
     print_summary
 }

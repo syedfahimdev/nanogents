@@ -445,8 +445,9 @@ CHANNELS = [
         "fields": [
             {
                 "key": "allowFrom",
-                "prompt": "Your phone number (e.g. +1234567890)",
-                "hint": "Only messages from this number will be processed",
+                "prompt": "Allowed phone number (e.g. 1234567890, without +)",
+                "hint": "The number that can message the bot. Enter WITHOUT the + prefix.\n"
+                        "           Leave empty to allow everyone.",
                 "required": False,
                 "is_list": True,
             },
@@ -781,6 +782,11 @@ class SetupWizard:
             # WhatsApp defaults + QR login flow
             if ch_name == "whatsapp":
                 ch_config.setdefault("bridgeUrl", "ws://localhost:3001")
+                # Strip + from phone numbers — bridge sends IDs without +
+                if "allowFrom" in ch_config:
+                    ch_config["allowFrom"] = [
+                        n.lstrip("+") for n in ch_config["allowFrom"]
+                    ]
                 self._whatsapp_selected = True
 
             self.config["channels"][ch_name] = ch_config
@@ -838,6 +844,24 @@ class SetupWizard:
         else:
             self.config["tools"]["restrictToWorkspace"] = True
             ok("Sandbox mode — agent restricted to workspace only")
+
+        # ── n8n MCP integration ──
+        print()
+        if ask_yes_no("Connect n8n workflows as agent tools? (MCP integration)", default=False):
+            n8n_url = ask(
+                "n8n MCP URL (e.g. https://n8n.yourdomain.com/mcp)",
+                required=True,
+            )
+            n8n_api_key = ask("n8n API key (optional, for auth)", secret=True)
+
+            mcp_servers = self.config["tools"].setdefault("mcpServers", {})
+            n8n_cfg: dict = {"url": n8n_url}
+            if n8n_api_key:
+                n8n_cfg["headers"] = {"Authorization": f"Bearer {n8n_api_key}"}
+            mcp_servers["n8n"] = n8n_cfg
+
+            ok(f"n8n MCP connected: {n8n_url}")
+            info("Create workflows with 'MCP Server Trigger' in n8n to expose them as tools")
 
     # ── WhatsApp Login ─────────────────────────────────────────────────────
 
@@ -952,6 +976,12 @@ class SetupWizard:
 
         search = tools.get("web", {}).get("search", {}).get("apiKey")
         print(f"  {BOLD}Search:{NC}    {'enabled' if search else 'disabled'}")
+
+        mcp = tools.get("mcpServers", {})
+        if mcp:
+            print(f"  {BOLD}MCP:{NC}       {', '.join(mcp.keys())}")
+        else:
+            print(f"  {BOLD}MCP:{NC}       none")
 
         print(f"\n  {BOLD}Config:{NC}    {self.config_path}")
         print()

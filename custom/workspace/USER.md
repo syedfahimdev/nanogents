@@ -1,0 +1,4 @@
+- Name: Fahim
+- Stack: Python, Node.js, Docker
+- VPS: Ubuntu on cloud server
+- Channels: Telegram, Discord, WhatsApp

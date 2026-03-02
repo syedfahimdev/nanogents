@@ -55,6 +55,95 @@ services:
     privileged: true
     network_mode: host
 
+  # ── n8n Workflow Automation ───────────────────────────────────────────────
+  n8n-postgres:
+    image: postgres:16
+    container_name: n8n-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${N8N_DB_USER:-n8n}
+      POSTGRES_PASSWORD: ${N8N_DB_PASSWORD:-changeme}
+      POSTGRES_DB: ${N8N_DB_NAME:-n8n}
+    volumes:
+      - n8n-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${N8N_DB_USER:-n8n}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - n8n-internal
+    profiles:
+      - n8n
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "3"
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: n8n
+    restart: unless-stopped
+    ports:
+      - "5678:5678"
+    environment:
+      # Core
+      - NODE_ENV=production
+      - N8N_PORT=5678
+      - GENERIC_TIMEZONE=${TZ:-UTC}
+      - TZ=${TZ:-UTC}
+
+      # Security — GENERATE KEY: openssl rand -hex 32
+      - N8N_ENCRYPTION_KEY=${N8N_ENCRYPTION_KEY}
+
+      # External URL (for webhooks, MCP, OAuth callbacks)
+      - N8N_HOST=${N8N_HOST:-0.0.0.0}
+      - N8N_PROTOCOL=${N8N_PROTOCOL:-https}
+      - WEBHOOK_URL=${N8N_URL:-https://n8n.example.com}/
+      - N8N_EDITOR_BASE_URL=${N8N_URL:-https://n8n.example.com}/
+
+      # Database
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=n8n-postgres
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_USER=${N8N_DB_USER:-n8n}
+      - DB_POSTGRESDB_PASSWORD=${N8N_DB_PASSWORD:-changeme}
+      - DB_POSTGRESDB_DATABASE=${N8N_DB_NAME:-n8n}
+
+      # MCP support
+      - N8N_COMMUNITY_PACKAGES_ALLOW_TOOL_USAGE=true
+    volumes:
+      - n8n-data:/home/node/.n8n
+    depends_on:
+      n8n-postgres:
+        condition: service_healthy
+    networks:
+      - n8n-internal
+    profiles:
+      - n8n
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    logging:
+      driver: json-file
+      options:
+        max-size: "50m"
+        max-file: "5"
+
 volumes:
   nanobot-config:
     driver: local
+  n8n-postgres-data:
+    driver: local
+  n8n-data:
+    driver: local
+
+networks:
+  n8n-internal:
+    driver: bridge
